@@ -7,17 +7,6 @@ declare global {
   }
 }
 
-// Define proper types instead of any
-type SpeechRecognitionEvent = {
-  results: {
-    [index: number]: {
-      [index: number]: {
-        transcript: string;
-      };
-    };
-  };
-};
-
 export class SpeechService {
   private apiKey: string;
   private voiceId: string = 'pNInz6obpgDQGcFmaJgB'; // Example voice ID, you can change this
@@ -110,7 +99,7 @@ export class SpeechService {
     this.recognition = new (window.webkitSpeechRecognition || window.SpeechRecognition)();
     this.recognition.continuous = false;
     this.recognition.interimResults = false;
-    this.recognition.onresult = (event: any) => onResult(event.results[0][0].transcript);
+    this.recognition.onresult = (event: SpeechRecognitionEvent) => onResult(event.results[0][0].transcript);
     this.recognition.start();
   }
 

@@ -1,6 +1,6 @@
 "use client"
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, useGLTF, useAnimations, Environment, ContactShadows, Sparkles } from '@react-three/drei';
 import { SpeechService } from '../utils/speechService';
 import { GroqService } from '../utils/groqService';
@@ -9,8 +9,7 @@ import * as THREE from 'three';
 
 function AnimeCharacter({ isSpeaking, text }: { isSpeaking: boolean; text: string }) {
   const group = useRef<THREE.Group>(null);
-  const { scene, animations } = useGLTF('/65a8dba831b23abb4f401bae.glb');
-  const { actions: _ } = useAnimations(animations, group);
+  const { scene } = useGLTF('/65a8dba831b23abb4f401bae.glb');
   const mesh = scene.children[0] as THREE.Mesh & { 
     morphTargetDictionary?: { [key: string]: number };
     morphTargetInfluences?: number[];
@@ -249,7 +248,6 @@ export default function Chat3D() {
   const [speechService] = useState(new SpeechService(process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY!));
   const groqService = new GroqService(process.env.NEXT_PUBLIC_GROQ_API_KEY!);
   const [currentText, setCurrentText] = useState('');
-  const [speechProgress, setSpeechProgress] = useState(0);
 
   const handleSendMessage = async (content: string) => {
     try {
