@@ -1,27 +1,38 @@
-import { Character } from "@/types/character";
-
 declare global {
   interface Window {
-    SpeechRecognition: any;
-    webkitSpeechRecognition: any;
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
     AudioContext: typeof AudioContext;
     webkitAudioContext: typeof AudioContext;
   }
 }
 
-type SpeechRecognition = any; // Temporary type for demo
+// Define proper types instead of any
+type SpeechRecognitionEvent = {
+  results: {
+    [index: number]: {
+      [index: number]: {
+        transcript: string;
+      };
+    };
+  };
+};
 
 export class SpeechService {
   private apiKey: string;
   private voiceId: string = 'pNInz6obpgDQGcFmaJgB'; // Example voice ID, you can change this
-  private recognition: any;
-  private audioContext: AudioContext | null = null;
+  private recognition: SpeechRecognition | null = null;
+  public audioContext: AudioContext | null = null;
   private audioBuffer: AudioBuffer | null = null;
+  public onProgressUpdate: ((progress: number) => void) | null = null;
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
     if (typeof window !== 'undefined') {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.audioContext.state !== 'suspended') {
+        this.audioContext.suspend();
+      }
     }
   }
 

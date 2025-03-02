@@ -1,5 +1,5 @@
 "use client"
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, useGLTF, useAnimations, Environment, ContactShadows, Sparkles } from '@react-three/drei';
 import { SpeechService } from '../utils/speechService';
@@ -7,218 +7,237 @@ import { GroqService } from '../utils/groqService';
 import { characterConfig } from '../config/character';
 import * as THREE from 'three';
 
-function AnimeCharacter({ isSpeaking, text, speechProgress }: { isSpeaking: boolean; text: string; speechProgress: number }) {
-    const group = useRef<THREE.Group>(null);
-    const { scene, animations } = useGLTF('/65a8dba831b23abb4f401bae.glb');
-    const { actions } = useAnimations(animations, group);
-    const { camera } = useThree();
-    const mesh = scene.children[0] as THREE.Mesh & { 
-      morphTargetDictionary?: { [key: string]: number };
-      morphTargetInfluences?: number[];
-    };
-  
-    // Store references to bones for animation
-    const bonesRef = useRef<{
-      leftArm?: THREE.Object3D;
-      rightArm?: THREE.Object3D;
-      leftForeArm?: THREE.Object3D;
-      rightForeArm?: THREE.Object3D;
-      leftHand?: THREE.Object3D;
-      rightHand?: THREE.Object3D;
-      head?: THREE.Object3D;
-    }>({});
-  
-    // Viseme references for mouth movement
-    const visemes = {
-      'A': mesh.morphTargetDictionary?.['viseme_A'] ?? 0,
-      'E': mesh.morphTargetDictionary?.['viseme_E'] ?? 0,
-      'I': mesh.morphTargetDictionary?.['viseme_I'] ?? 0,
-      'O': mesh.morphTargetDictionary?.['viseme_O'] ?? 0,
-      'U': mesh.morphTargetDictionary?.['viseme_U'] ?? 0,
-    };
-  
-    // Animation settings
-    const mouthOpenValue = useRef(0);
-    const speakingIntensity = useRef(0);
-    const gesturePhase = useRef(0);
-  
-    // Find all necessary bones when the scene loads
-    useEffect(() => {
-      // Log all available bones for debugging
-      console.log("All scene objects:", scene.children.map(child => child.name));
-      
-      // Traverse the scene to find bones by name pattern
-      scene.traverse((object) => {
-        if (object.name.includes('mixamorig')) {
-          console.log("Found bone:", object.name);
-        }
-      });
-      
-      // Find the relevant bones
-      bonesRef.current = {
-        head: scene.getObjectByName('mixamorigHead'),
-        leftArm: scene.getObjectByName('mixamorigLeftArm'),
-        rightArm: scene.getObjectByName('mixamorigRightArm'),
-        leftForeArm: scene.getObjectByName('mixamorigLeftForeArm'),
-        rightForeArm: scene.getObjectByName('mixamorigRightForeArm'),
-        leftHand: scene.getObjectByName('mixamorigLeftHand'),
-        rightHand: scene.getObjectByName('mixamorigRightHand')
-      };
-  
-      // Log the bones found
-      console.log("Bones found:", Object.keys(bonesRef.current).filter(key => bonesRef.current[key as keyof typeof bonesRef.current]));
-    }, [scene]);
-  
-    // Handle mouth movement for speaking
-    useEffect(() => {
-      if (isSpeaking && text) {
-        // Simple approximation of syllables
-        const syllableDuration = 0.15;
-        speakingIntensity.current = 1.0; // Full intensity when speaking
-        
-        // Reset mouth state when done speaking
-        return () => {
-          if (mesh.morphTargetInfluences) {
-            Object.values(visemes).forEach((idx) => {
-              if (typeof idx === 'number' && mesh.morphTargetInfluences) {
-                mesh.morphTargetInfluences[idx] = 0;
-              }
-            });
-          }
-          speakingIntensity.current = 0;
-        };
-      }
-    }, [isSpeaking, text]);
-  
-    // Frame-by-frame animation
-    useFrame((state) => {
-      const time = state.clock.getElapsedTime();
-      
-      // Make sure the group reference exists
-      if (group.current) {
-        // Subtle breathing and idle movement
-        group.current.position.y = Math.sin(time * 1.5) * 0.01;
-        
-        // Handle speaking animation
-        if (isSpeaking) {
-          // Head movement during speech
-          if (bonesRef.current.head) {
-            const headTilt = Math.sin(time * 2) * 0.1;
-            const headTurn = Math.sin(time * 1.5) * 0.15;
-            bonesRef.current.head.rotation.y = headTurn;
-            bonesRef.current.head.rotation.z = headTilt * 0.3;
-          }
-          
-          // Animate speaking gestures with arms
-          gesturePhase.current = time % 6; // 6-second gesture cycle
-          const gestureProgress = gesturePhase.current / 6;
-          
-          // Arms and hands expressively move during key parts of speech
-          if (gestureProgress < 0.3) {
-            // Gesture phase 1: Right arm moves slightly outward
-            if (bonesRef.current.rightArm && bonesRef.current.rightForeArm) {
-              const intensity = Math.sin(gestureProgress * Math.PI / 0.3) * 0.2;
-              bonesRef.current.rightArm.rotation.z = -0.7 - intensity;
-              bonesRef.current.rightForeArm.rotation.z = -0.3 - intensity * 0.5;
-            }
-          } else if (gestureProgress < 0.6) {
-            // Gesture phase 2: Left arm moves slightly
-            if (bonesRef.current.leftArm && bonesRef.current.leftForeArm) {
-              const subPhase = (gestureProgress - 0.3) / 0.3;
-              const intensity = Math.sin(subPhase * Math.PI) * 0.2;
-              bonesRef.current.leftArm.rotation.z = 0.7 + intensity;
-              bonesRef.current.leftForeArm.rotation.z = 0.3 + intensity * 0.5;
-            }
-          } else {
-            // Return to neutral crossed position
-            // setCrossedArmsPose();
-          }
-          
-          // Mouth animation
-          if (mesh.morphTargetInfluences) {
-            console.log( mesh.morphTargetInfluences, "snith")
-            // Calculate a cyclic mouth pattern
-            const mouthCycle = time * 8; // Speed of mouth movement
-            const vowelIndex = Math.floor(mouthCycle % 5); // 5 vowel positions
-            
-            // Reset all visemes
-            Object.values(visemes).forEach((idx) => {
-              if (typeof idx === 'number' && mesh.morphTargetInfluences) {
-                mesh.morphTargetInfluences[idx] = 0;
-              }
-            });
-            
-            // Select current viseme
-            const vowels = ['A', 'E', 'I', 'O', 'U'] as const;
-            const currentVowel = vowels[vowelIndex];
-            const visemeIndex = visemes[currentVowel];
-            
-            // Apply with intensity that varies naturally
-            const intensity = (Math.sin(mouthCycle * Math.PI) + 1) * 0.5 * 0.8;
-            if (typeof visemeIndex === 'number') {
-              mesh.morphTargetInfluences[visemeIndex] = intensity;
-            }
-            
-            // Periodically close mouth between syllables
-            if (Math.sin(mouthCycle * 0.5) < -0.8) {
-              Object.values(visemes).forEach((idx) => {
-                if (typeof idx === 'number' && mesh.morphTargetInfluences) {
-                  mesh.morphTargetInfluences[idx] = 0;
-                }
-              });
-            }
-          }
-        } else {
-          // Idle animation - subtle movement when not speaking
-          if (bonesRef.current.head) {
-            // Occasional subtle head movement
-            const slowNod = Math.sin(time * 0.5) * 0.02;
-            bonesRef.current.head.rotation.x = slowNod;
-          }
-          
-          // Close mouth when not speaking
-          if (mesh.morphTargetInfluences) {
-            Object.values(visemes).forEach((idx) => {
-              if (typeof idx === 'number' && mesh.morphTargetInfluences) {
-                mesh.morphTargetInfluences[idx] = 0;
-              }
-            });
-          }
-        }
+function AnimeCharacter({ isSpeaking, text }: { isSpeaking: boolean; text: string }) {
+  const group = useRef<THREE.Group>(null);
+  const { scene, animations } = useGLTF('/65a8dba831b23abb4f401bae.glb');
+  const { actions: _ } = useAnimations(animations, group);
+  const mesh = scene.children[0] as THREE.Mesh & { 
+    morphTargetDictionary?: { [key: string]: number };
+    morphTargetInfluences?: number[];
+  };
+
+  // Store references to bones for animation
+  const bonesRef = useRef<{
+    leftArm?: THREE.Object3D;
+    rightArm?: THREE.Object3D;
+    leftForeArm?: THREE.Object3D;
+    rightForeArm?: THREE.Object3D;
+    leftHand?: THREE.Object3D;
+    rightHand?: THREE.Object3D;
+    head?: THREE.Object3D;
+  }>({});
+
+  // Viseme references for mouth movement
+  const visemes = useMemo(() => ({
+    'A': mesh.morphTargetDictionary?.['viseme_A'] ?? 0,
+    'E': mesh.morphTargetDictionary?.['viseme_E'] ?? 0,
+    'I': mesh.morphTargetDictionary?.['viseme_I'] ?? 0,
+    'O': mesh.morphTargetDictionary?.['viseme_O'] ?? 0,
+    'U': mesh.morphTargetDictionary?.['viseme_U'] ?? 0,
+  }), [mesh.morphTargetDictionary]);
+
+  // Animation settings
+  const gesturePhase = useRef(0);
+
+  // Find all necessary bones when the scene loads
+  useEffect(() => {
+    // Log all available bones for debugging
+    console.log("All scene objects:", scene.children.map(child => child.name));
+    
+    // Traverse the scene to find bones by name pattern
+    scene.traverse((object) => {
+      if (object.name.includes('mixamorig')) {
+        console.log("Found bone:", object.name);
       }
     });
-  
-    // Log when speaking state changes
-    useEffect(() => {
-      console.log("Speaking state:", isSpeaking);
-      console.log("Current text:", text?.substring(0, 20));
-    }, [isSpeaking, text]);
-  
-    return (
-      <group ref={group}>
-        <primitive object={scene} scale={1} position={[0, -1, 0]} />
+    
+    // Find the relevant bones
+    bonesRef.current = {
+      head: scene.getObjectByName('mixamorigHead'),
+      leftArm: scene.getObjectByName('mixamorigLeftArm'),
+      rightArm: scene.getObjectByName('mixamorigRightArm'),
+      leftForeArm: scene.getObjectByName('mixamorigLeftForeArm'),
+      rightForeArm: scene.getObjectByName('mixamorigRightForeArm'),
+      leftHand: scene.getObjectByName('mixamorigLeftHand'),
+      rightHand: scene.getObjectByName('mixamorigRightHand')
+    };
+
+    // Set the initial crossed arms pose
+    setCrossedArmsPose();
+    
+    console.log("Bones found:", Object.keys(bonesRef.current).filter(key => bonesRef.current[key as keyof typeof bonesRef.current]));
+  }, [scene]);
+
+  // Set the character into a crossed arms pose
+  const setCrossedArmsPose = useCallback(() => {
+    const { leftArm, rightArm, leftForeArm, rightForeArm, leftHand, rightHand } = bonesRef.current;
+    
+    if (leftArm && rightArm) {
+      // Upper arms position - raised and angled inward
+      leftArm.rotation.set(0.4, -0.5, 0.7);
+      rightArm.rotation.set(0.4, 0.5, -0.7);
+      
+      console.log("Setting arm positions");
+    }
+    
+    if (leftForeArm && rightForeArm) {
+      // Forearms crossed in front of chest
+      leftForeArm.rotation.set(1.2, 0.2, 0.3);
+      rightForeArm.rotation.set(1.2, -0.2, -0.3);
+      
+      console.log("Setting forearm positions");
+    }
+    
+    if (leftHand && rightHand) {
+      // Hands slightly angled for natural pose
+      leftHand.rotation.set(0, 0.2, 0);
+      rightHand.rotation.set(0, -0.2, 0);
+      
+      console.log("Setting hand positions");
+    }
+  }, []);
+
+  // Handle mouth movement for speaking
+  useEffect(() => {
+    if (isSpeaking && text) {
+      // Reset mouth state when done speaking
+      return () => {
+        if (mesh.morphTargetInfluences) {
+          Object.values(visemes).forEach((idx) => {
+            if (typeof idx === 'number' && mesh.morphTargetInfluences) {
+              mesh.morphTargetInfluences[idx] = 0;
+            }
+          });
+        }
+      };
+    }
+  }, [isSpeaking, text, visemes, mesh.morphTargetInfluences]);
+
+  // Frame-by-frame animation
+  useFrame((state) => {
+    const time = state.clock.getElapsedTime();
+    
+    // Make sure the group reference exists
+    if (group.current) {
+      // Subtle breathing and idle movement
+      group.current.position.y = Math.sin(time * 1.5) * 0.01;
+      
+      // Handle speaking animation
+      if (isSpeaking) {
+        // Head movement during speech
+        if (bonesRef.current.head) {
+          const headTilt = Math.sin(time * 2) * 0.1;
+          const headTurn = Math.sin(time * 1.5) * 0.15;
+          bonesRef.current.head.rotation.y = headTurn;
+          bonesRef.current.head.rotation.z = headTilt * 0.3;
+        }
         
-        {/* Visual indicator when speaking */}
-        {isSpeaking && (
-          <group position={[0, 1.5, 0]}>
-            <Sparkles 
-              count={20} 
-              scale={1.5} 
-              size={2} 
-              speed={0.4} 
-              color="#4f46e5"
-            />
-            <pointLight
-              color="#4f46e5"
-              intensity={2}
-              distance={3}
-              decay={2}
-            />
-          </group>
-        )}
-      </group>
-    );
-  }
+        // Animate speaking gestures with arms
+        gesturePhase.current = time % 6; // 6-second gesture cycle
+        const gestureProgress = gesturePhase.current / 6;
+        
+        // Arms and hands expressively move during key parts of speech
+        if (gestureProgress < 0.3) {
+          // Gesture phase 1: Right arm moves slightly outward
+          if (bonesRef.current.rightArm && bonesRef.current.rightForeArm) {
+            const intensity = Math.sin(gestureProgress * Math.PI / 0.3) * 0.2;
+            bonesRef.current.rightArm.rotation.z = -0.7 - intensity;
+            bonesRef.current.rightForeArm.rotation.z = -0.3 - intensity * 0.5;
+          }
+        } else if (gestureProgress < 0.6) {
+          // Gesture phase 2: Left arm moves slightly
+          if (bonesRef.current.leftArm && bonesRef.current.leftForeArm) {
+            const subPhase = (gestureProgress - 0.3) / 0.3;
+            const intensity = Math.sin(subPhase * Math.PI) * 0.2;
+            bonesRef.current.leftArm.rotation.z = 0.7 + intensity;
+            bonesRef.current.leftForeArm.rotation.z = 0.3 + intensity * 0.5;
+          }
+        } else {
+          // Return to neutral crossed position
+          setCrossedArmsPose();
+        }
+        
+        // Mouth animation
+        if (mesh.morphTargetInfluences) {
+          // Calculate a cyclic mouth pattern
+          const mouthCycle = time * 8; // Speed of mouth movement
+          const vowelIndex = Math.floor(mouthCycle % 5); // 5 vowel positions
+          
+          // Reset all visemes
+          Object.values(visemes).forEach((idx) => {
+            if (typeof idx === 'number' && mesh.morphTargetInfluences) {
+              mesh.morphTargetInfluences[idx] = 0;
+            }
+          });
+          
+          // Select current viseme
+          const vowels = ['A', 'E', 'I', 'O', 'U'] as const;
+          const currentVowel = vowels[vowelIndex];
+          const visemeIndex = visemes[currentVowel];
+          
+          // Apply with intensity that varies naturally
+          const intensity = (Math.sin(mouthCycle * Math.PI) + 1) * 0.5 * 0.8;
+          if (typeof visemeIndex === 'number' && mesh.morphTargetInfluences) {
+            mesh.morphTargetInfluences[visemeIndex] = intensity;
+          }
+          
+          // Periodically close mouth between syllables
+          if (Math.sin(mouthCycle * 0.5) < -0.8) {
+            Object.values(visemes).forEach((idx) => {
+              if (typeof idx === 'number' && mesh.morphTargetInfluences) {
+                mesh.morphTargetInfluences[idx] = 0;
+              }
+            });
+          }
+        }
+      } else {
+        // Idle animation - subtle movement when not speaking
+        if (bonesRef.current.head) {
+          // Occasional subtle head movement
+          const slowNod = Math.sin(time * 0.5) * 0.02;
+          bonesRef.current.head.rotation.x = slowNod;
+        }
+        
+        // Make sure arms stay crossed
+        setCrossedArmsPose();
+        
+        // Close mouth when not speaking
+        if (mesh.morphTargetInfluences) {
+          Object.values(visemes).forEach((idx) => {
+            if (typeof idx === 'number' && mesh.morphTargetInfluences) {
+              mesh.morphTargetInfluences[idx] = 0;
+            }
+          });
+        }
+      }
+    }
+  });
+
+  return (
+    <group ref={group}>
+      <primitive object={scene} scale={1} position={[0, -1, 0]} />
+      
+      {/* Visual indicator when speaking */}
+      {isSpeaking && (
+        <group position={[0, 1.5, 0]}>
+          <Sparkles 
+            count={20} 
+            scale={1.5} 
+            size={2} 
+            speed={0.4} 
+            color="#4f46e5"
+          />
+          <pointLight
+            color="#4f46e5"
+            intensity={2}
+            distance={3}
+            decay={2}
+          />
+        </group>
+      )}
+    </group>
+  );
+}
 
 export default function Chat3D() {
   const [messages, setMessages] = useState<Array<{
@@ -271,7 +290,7 @@ export default function Chat3D() {
           shadow-mapSize={[1024, 1024]}
         />
         
-        <AnimeCharacter isSpeaking={isSpeaking} text={currentText} speechProgress={speechProgress} />
+        <AnimeCharacter isSpeaking={isSpeaking} text={currentText} />
         
         <ContactShadows
           opacity={0.5}
