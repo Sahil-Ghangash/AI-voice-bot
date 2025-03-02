@@ -1,7 +1,7 @@
 "use client"
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, useGLTF, useAnimations, Environment, ContactShadows, Sparkles } from '@react-three/drei';
+import { OrbitControls, useGLTF, Environment, ContactShadows, Sparkles } from '@react-three/drei';
 import { SpeechService } from '../utils/speechService';
 import { GroqService } from '../utils/groqService';
 import { characterConfig } from '../config/character';
